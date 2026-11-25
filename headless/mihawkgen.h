@@ -44,18 +44,24 @@ public:
 
     void SubmitFrame(VkImage color_image, VkImageView color_view);
 
-    size_t GenerationCount() const;
+    struct InputPair {
+        VkImage previous;
+        VkImage current;
+        VkImageView previous_view;
+        VkImageView current_view;
+    };
+
+    InputPair Inputs() const;
 
     // Records barriers + compute dispatches for one generated frame. The caller
     // must NOT have transitioned the inputs or output — this method handles all
     // layout transitions required by the framegen API.
-    void RecordGenerate(VkCommandBuffer cmd, uint32_t slot, float t,
+    void RecordGenerate(VkCommandBuffer cmd, uint32_t slot, float t, InputPair inputs,
                         VkImage output_image, VkImageView output_view);
 
 private:
     fg_context* ctx_ = nullptr;
     bool network_loaded_ = false;
-    uint64_t frame_count_ = 0;
     VkImage prev_image_ = VK_NULL_HANDLE;
     VkImageView prev_color_ = VK_NULL_HANDLE;
     VkImage curr_image_ = VK_NULL_HANDLE;

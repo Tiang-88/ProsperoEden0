@@ -112,7 +112,6 @@ void MihawkGen::Destroy() {
         ctx_ = nullptr;
     }
     network_loaded_ = false;
-    frame_count_ = 0;
     prev_image_ = VK_NULL_HANDLE;
     prev_color_ = VK_NULL_HANDLE;
     curr_image_ = VK_NULL_HANDLE;
@@ -129,14 +128,10 @@ void MihawkGen::SubmitFrame(VkImage color_image, VkImageView color_view) {
     prev_color_ = curr_color_;
     curr_image_ = color_image;
     curr_color_ = color_view;
-    ++frame_count_;
 }
 
-size_t MihawkGen::GenerationCount() const {
-    if (!IsReady() || frame_count_ < 2 || prev_color_ == VK_NULL_HANDLE || curr_color_ == VK_NULL_HANDLE) {
-        return 0;
-    }
-    return 1;
+MihawkGen::InputPair MihawkGen::Inputs() const {
+    return {prev_image_, curr_image_, prev_color_, curr_color_};
 }
 
 static void RecordBarrier(VkCommandBuffer cmd, VkImage image,
@@ -156,39 +151,45 @@ static void RecordBarrier(VkCommandBuffer cmd, VkImage image,
     vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &b);
 }
 
-void MihawkGen::RecordGenerate(VkCommandBuffer cmd, uint32_t slot, float t,
+void MihawkGen::RecordGenerate(VkCommandBuffer cmd, uint32_t slot, float t, InputPair inputs,
                                 VkImage output_image, VkImageView output_view) {
-    if (!IsReady() || prev_color_ == VK_NULL_HANDLE || curr_color_ == VK_NULL_HANDLE) {
+    if (!IsReady() || inputs.previous_view == VK_NULL_HANDLE || inputs.current_view == VK_NULL_HANDLE) {
         return;
     }
 
     // framegen API: inputs in SHADER_READ_ONLY_OPTIMAL, output in GENERAL
-    RecordBarrier(cmd, prev_image_,
-                  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    RecordBarrier(cmd, curr_image_,
-                  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    RecordBarrier(cmd, inputs.previous,
+                  VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    RecordBarrier(cmd, inputs.current,
+                  VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     RecordBarrier(cmd, output_image,
                   0, VK_ACCESS_SHADER_WRITE_BIT,
                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     fg_frame_pair pair{};
-    pair.prev_color = prev_color_;
-    pair.next_color = curr_color_;
+    pair.prev_color = inputs.previous_view;
+    pair.next_color = inputs.current_view;
     pair.prev_depth = VK_NULL_HANDLE;
     pair.next_depth = VK_NULL_HANDLE;
     pair.next_motion = VK_NULL_HANDLE;
     pair.t = t;
     fg_record_generate(ctx_, cmd, slot, FG_METHOD_NEURAL, &pair, output_view);
 
-    // Transition output to transfer source for the present blit
+    // CopyToSwapchain expects GENERAL. Restore both inputs after each interpolation
+    // so the next dispatch can use the same pair at a different time.
+    for (VkImage input : {inputs.previous, inputs.current}) {
+        RecordBarrier(cmd, input, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT,
+                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+    }
     RecordBarrier(cmd, output_image,
                   VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                  VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 }
 
