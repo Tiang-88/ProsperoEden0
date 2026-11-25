@@ -153,6 +153,9 @@ endif()
 set(MIHAWKGEN_ROOT "${PORT_ROOT}/../mihawk-framegen-review")
 option(EDEN_PS5_MIHAWKGEN "Build MihawkGen neural frame generation" ON)
 if(EDEN_PS5_MIHAWKGEN AND EXISTS "${MIHAWKGEN_ROOT}/framegen/include/framegen.h")
+    if(NOT EDEN_PS5_FRAMEGEN)
+        list(APPEND video_sources renderer_vulkan/present/frame_gen_pacer.cpp)
+    endif()
     set(MIHAWKGEN_VOLK_DIR "${MIHAWKGEN_ROOT}/ps5/third_party/volk")
     set(MIHAWKGEN_VOLK_SOURCES
         "${MIHAWKGEN_ROOT}/framegen/src/fg_common.cpp"

@@ -27,9 +27,14 @@
                 Eden::Report("framegen", "MihawkGen: failed to create context");
             }
         }
-        if (mihawkgen_.IsReady() && frame->image_view) {
+        if (mihawkgen_.IsReady() && frame->image_view && frame->storage_capable) {
             mihawkgen_.SubmitFrame(*frame->image, *frame->image_view);
-            const size_t gen_count = mihawkgen_.GenerationCount();
+            const auto inputs = mihawkgen_.Inputs();
+            // Keep both source images out of the FIFO slots used for generated frames.
+            const size_t extra = present_manager.MaxExtraFrames();
+            const size_t capacity = extra > 0 ? extra - 1 : 0;
+            const auto plan = mihawkgen_pacer_.Plan(capacity);
+            const size_t gen_count = inputs.previous_view ? plan.generations : 0;
             for (size_t g = 0; g < gen_count; ++g) {
                 Frame* generated = present_manager.GetRenderFrame();
                 blit_swapchain.PrepareFrame(device, generated,
@@ -39,10 +44,10 @@
                                     static_cast<float>(g + 1);
                     scheduler.RequestOutsideRenderPassOperationContext();
                     scheduler.Record(
-                        [this, slot = generated->index, t,
+                        [this, slot = generated->index, t, inputs,
                          out_image = *generated->image,
                          out_view = *generated->storage_view](vk::CommandBuffer cmdbuf) {
-                            mihawkgen_.RecordGenerate(*cmdbuf, slot, t,
+                            mihawkgen_.RecordGenerate(*cmdbuf, slot, t, inputs,
                                                       out_image, out_view);
                         });
                     scheduler.Flush(*generated->render_ready);

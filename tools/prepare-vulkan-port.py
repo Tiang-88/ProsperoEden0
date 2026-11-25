@@ -578,7 +578,12 @@ adapt('src/video_core/renderer_vulkan/vk_present_manager.h',
 ])
 adapt('src/video_core/renderer_vulkan/vk_present_manager.cpp', 'vulkan_present_manager.cpp', [
     ('#include "video_core/renderer_vulkan/vk_present_manager.h"',
-     '#include "video_core/renderer_vulkan/vk_present_manager.h"\n#include "gpu_failure.h"\n#include "performance.h"'),
+     '#include "video_core/renderer_vulkan/vk_present_manager.h"\n#include "gpu_failure.h"\n#include "performance.h"\n#ifdef HAS_MIHAWKGEN\n#include "mihawkgen_bridge.h"\n#endif'),
+    ('    swapchain_image_count = swapchain.GetImageCount();',
+     '#ifdef HAS_MIHAWKGEN\n'
+     '    if (Eden::MihawkGenBridge::active.load()) {\n'
+     '        image_count = std::min<size_t>(MAX_FRAMES_IN_FLIGHT, image_count + 1);\n'
+     '    }\n#endif\n    swapchain_image_count = swapchain.GetImageCount();'),
     # GetRenderFrame runs on the GPU thread: time its free-frame and
     # present-completion waits (FIFO back-pressure on the producer).
     ('    // Wait for free presentation frames\n    std::unique_lock lock{free_mutex};',
@@ -813,10 +818,10 @@ adapt('src/video_core/renderer_vulkan/renderer_vulkan.h',
     ('    void Composite(', '    void PresentLoading();\n    void Composite('),
     ('#ifdef HAS_LSFG\n#include "video_core/renderer_vulkan/present/frame_gen.h"\n#endif',
      '#ifdef HAS_LSFG\n#include "video_core/renderer_vulkan/present/frame_gen.h"\n#endif\n'
-     '#ifdef HAS_MIHAWKGEN\n#include "mihawkgen.h"\n#include "mihawkgen_bridge.h"\n#endif'),
+     '#ifdef HAS_MIHAWKGEN\n#include "mihawkgen.h"\n#include "mihawkgen_bridge.h"\n#include "video_core/renderer_vulkan/present/frame_gen_pacer.h"\n#endif'),
     ('#ifdef HAS_LSFG\n    FrameGen frame_gen;\n#endif',
      '#ifdef HAS_LSFG\n    FrameGen frame_gen;\n#endif\n'
-     '#ifdef HAS_MIHAWKGEN\n    Eden::MihawkGen mihawkgen_;\n    bool mihawkgen_init_{};\n#endif'),
+     '#ifdef HAS_MIHAWKGEN\n    Eden::MihawkGen mihawkgen_;\n    FrameGenPacer mihawkgen_pacer_;\n    bool mihawkgen_init_{};\n#endif'),
 ])
 adapt('src/video_core/renderer_vulkan/renderer_vulkan.cpp', 'vulkan_renderer.cpp', [
     ('#include "video_core/renderer_vulkan/renderer_vulkan.h"',
